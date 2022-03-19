@@ -12,8 +12,12 @@ type Parser struct {
 
 type AstNode struct {
 	NodeType  string
-	NodeBody  *AstNode
+	NodeBody  []*AstNode
 	NodeValue string
+	// binaryexpression
+	NodeOperator string
+	NodeLeft     *AstNode
+	NodeRight    *AstNode
 }
 
 func (p *Parser) Parse(s string) *AstNode {
@@ -21,27 +25,34 @@ func (p *Parser) Parse(s string) *AstNode {
 	p.tokenizer = &Tokenizer{
 		source: s,
 	}
-	p.lookahead = p.tokenizer.getNextToken()
+	p.lookahead, _ = p.tokenizer.getNextToken()
 	return p.Program()
 }
 
 func (p *Parser) Program() *AstNode {
-	if body, err := p.Literal(); err != nil {
-		return nil
-	} else {
-		return &AstNode{
-			NodeType: "Program",
-			NodeBody: body,
-		}
+	return &AstNode{
+		NodeType: "Program",
+		NodeBody: p.StatementList("NULL"),
 	}
 }
 
-func (p *Parser) StatementList() *AstNode {
-	return nil
+func (p *Parser) StatementList(stopLookahead string) []*AstNode {
+	statementList := []*AstNode{p.Statement()}
+	for p.lookahead != nil && p.lookahead.TokenType != stopLookahead {
+		statementList = append(statementList, p.Statement())
+	}
+	return statementList
 }
 
 func (p *Parser) Statement() *AstNode {
-	return nil
+	switch p.lookahead.TokenType {
+	case ";":
+		return p.EmptyStatement()
+	case "{":
+		return p.BlockStatement()
+	default:
+		return p.ExpressionStatement()
+	}
 }
 
 func (p *Parser) ClassDeclaration() *AstNode {
@@ -110,19 +121,38 @@ func (p *Parser) VariableInitializer() *AstNode {
 }
 
 func (p *Parser) EmptyStatement() *AstNode {
-	return nil
+	p.Eat(";")
+	return &AstNode{
+		NodeType: "EmptyStatement",
+	}
 }
 
 func (p *Parser) BlockStatement() *AstNode {
-	return nil
+	p.Eat("{")
+	var body []*AstNode
+	if p.lookahead.TokenType != "}" {
+		body = p.StatementList("}")
+	} else {
+		body = []*AstNode{}
+	}
+	p.Eat("}")
+	return &AstNode{
+		NodeType: "BlockStatement",
+		NodeBody: body,
+	}
 }
 
 func (p *Parser) ExpressionStatement() *AstNode {
-	return nil
+	exp := p.Expression()
+	p.Eat(";")
+	return &AstNode{
+		NodeType: "ExpressionStatement",
+		NodeBody: []*AstNode{exp},
+	}
 }
 
 func (p *Parser) Expression() *AstNode {
-	return nil
+	return p.AdditiveExpression()
 }
 
 func (p *Parser) AssignmentExpression() *AstNode {
@@ -162,19 +192,41 @@ func (p *Parser) RelationalExpression() *AstNode {
 }
 
 func (p *Parser) AdditiveExpression() *AstNode {
-	return nil
+	left := p.MultiplicativeExpression()
+	for p.lookahead.TokenType == "ADDITIVE_OPERATOR" {
+		operator, _ := p.Eat("ADDITIVE_OPERATOR")
+		right := p.MultiplicativeExpression()
+
+		left = &AstNode{
+			NodeType:     "BinaryExpression",
+			NodeOperator: operator.TokenValue,
+			NodeLeft:     left,
+			NodeRight:    right,
+		}
+	}
+	return left
 }
 
 func (p *Parser) MultiplicativeExpression() *AstNode {
-	return nil
+	left := p.PrimaryExpression()
+	for p.lookahead.TokenType == "MULTIPLICATIVE_OPERATOR" {
+		operator, _ := p.Eat("MULTIPLICATIVE_OPERATOR")
+		right := p.PrimaryExpression()
+
+		left = &AstNode{
+			NodeType:     "BinaryExpression",
+			NodeOperator: operator.TokenValue,
+			NodeLeft:     left,
+			NodeRight:    right,
+		}
+	}
+	return left
 }
 
 func (p *Parser) _LogicalExpression() *AstNode {
 	return nil
 }
-func (p *Parser) _BinaryExpression() *AstNode {
-	return nil
-}
+
 func (p *Parser) UnaryExpression() *AstNode {
 	return nil
 }
@@ -198,7 +250,15 @@ func (p *Parser) MemberExpression() *AstNode {
 	return nil
 }
 func (p *Parser) PrimaryExpression() *AstNode {
-	return nil
+	switch p.lookahead.TokenType {
+	case "(":
+		return p.ParenthesizedExpression()
+	default:
+		if node, err := p.Literal(); err == nil {
+			return node
+		}
+		return nil
+	}
 }
 
 func (p *Parser) NewExpression() *AstNode {
@@ -214,7 +274,10 @@ func (p *Parser) _isLiteral() *AstNode {
 	return nil
 }
 func (p *Parser) ParenthesizedExpression() *AstNode {
-	return nil
+	p.Eat("(")
+	exp := p.Expression()
+	p.Eat(")")
+	return exp
 }
 
 func (p *Parser) Literal() (*AstNode, error) {
@@ -268,6 +331,6 @@ func (p *Parser) Eat(tokenType string) (*Token, error) {
 		return nil, fmt.Errorf("unexpected token: %s, expected is: %s", token.TokenValue, tokenType)
 	}
 
-	p.lookahead = p.tokenizer.getNextToken()
+	p.lookahead, _ = p.tokenizer.getNextToken()
 	return token, nil
 }

@@ -1,11 +1,27 @@
 package main
 
-import "unicode"
+import (
+	"fmt"
+	"regexp"
+)
 
-// const Spec := []string{
-// 	"",
-// 	"",
-// }
+var Spec [][2]string = [][2]string{
+	{`^\s+`, "NULL"},
+	{`^\/\/.*`, "NULL"},
+	{`^\/\*[\s\S]*?\*\/`, "NULL"},
+	{`^;`, ";"},
+	{`^\{`, "{"},
+	{`^\}`, "}"},
+
+	{`^\(`, "("},
+	{`^\)`, ")"},
+
+	{`^[+\-]`, "ADDITIVE_OPERATOR"},
+	{`^[*\/]`, "MULTIPLICATIVE_OPERATOR"},
+	{`^\d+`, "NUMBER"},
+	{`"[^"]*"`, "STRING"},
+	{`'[^']*'`, "STRING"},
+}
 
 type Tokenizer struct {
 	source string
@@ -25,35 +41,40 @@ func (t *Tokenizer) hasMoreTokens() bool {
 	return t.cursor < len(t.source)
 }
 
-func (t *Tokenizer) getNextToken() *Token {
+func (t *Tokenizer) match(regex, str string) string {
+	r, _ := regexp.Compile(regex)
+	matched := r.MatchString(str)
+
+	if !matched {
+		return ""
+	}
+	t.cursor += len(r.FindString(str))
+	return r.FindString(str)
+}
+
+func (t *Tokenizer) getNextToken() (*Token, error) {
 	if !t.hasMoreTokens() {
-		return nil
+		return nil, nil
 	}
 	str := t.source[t.cursor:]
-	if unicode.IsNumber(rune(str[0])) {
-		var number string
-		for !t.isEOF() && unicode.IsNumber(rune(str[t.cursor])) {
-			number += string(str[t.cursor])
-			t.cursor++
-		}
-		return &Token{
-			TokenType:  "NUMBER",
-			TokenValue: number,
-		}
-	}
 
-	if str[0] == '"' {
-		var s string
-		t.cursor++
-		for str[t.cursor] != '"' && !t.isEOF() {
-			s += string(str[t.cursor])
-			t.cursor++
-		}
-		return &Token{
-			TokenType:  "STRING",
-			TokenValue: s,
-		}
-	}
+	for _, spec := range Spec {
+		regex := spec[0]
+		tokenType := spec[1]
 
-	return nil
+		tokenValue := t.match(regex, str)
+		if tokenValue == "" {
+			continue
+		}
+
+		if tokenType == "NULL" {
+			return t.getNextToken()
+		}
+
+		return &Token{
+			TokenType:  tokenType,
+			TokenValue: tokenValue,
+		}, nil
+	}
+	return nil, fmt.Errorf("unexpected token:%s", str)
 }
